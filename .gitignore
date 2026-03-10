@@ -1,0 +1,29 @@
+# Environment
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Runtime artifacts
+project3_costs.json
+outputs/
+.cache/
+.cache_test/
+data/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+tmpclaude-*
+
+# OS
+Thumbs.db
+.DS_Store
