@@ -303,8 +303,11 @@ elif mode == "Interactive (Review Each Stage)":
                 state = pipeline.run_stage(stage, state)
                 state['_use_cache'] = True
                 st.session_state.interactive_state = state
-                # Set widget value before text_area renders so it shows fresh output
                 st.session_state[f"edit_{stage}"] = pipeline.get_stage_output(state, stage)
+            # Rerun once more so the text area widget picks up the new session state value.
+            # Streamlit does not reflect st.session_state[widget_key] changes in the same
+            # script run that the widget renders — a second pass is required.
+            st.rerun()
 
         # Show output for review
         output_text = pipeline.get_stage_output(state, stage)
