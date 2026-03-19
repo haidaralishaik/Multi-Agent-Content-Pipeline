@@ -161,34 +161,53 @@ class ContentPipeline:
 
         try:
             topic = state['topic']
-
-            # Step 1: Perform real web search
-            search_results = self.web_search.search(topic, max_results=5)
-            search_context = self._format_search_results(search_results)
-            if tracer:
-                tracer.log_tool_call("researcher", "web_search", {"query": topic, "results": len(search_results)})
-
-            # Step 2: Build context with search results + user notes
-            context = {}
-            if search_context:
-                context["Web Search Results"] = search_context
-
             user_notes = state.get('user_notes', '')
-            if user_notes:
-                context["User's Notes and Key Points"] = user_notes
-
-            # Step 3: Run the researcher agent
-            # If a document was uploaded, expose it as a Groq tool so the agent
-            # decides whether and what to search in it.
             doc_indexer = state.get('_doc_indexer')
+
+            # Build tools — agent decides which to call and with what queries
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search_web",
+                        "description": (
+                            "Search the web for current information on a query. "
+                            "Use this for recent news, facts, statistics, or anything "
+                            "not likely covered in an uploaded document."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "Web search query",
+                                },
+                                "max_results": {
+                                    "type": "integer",
+                                    "description": "Number of results (1-10, default 5)",
+                                    "default": 5,
+                                },
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                },
+            ]
+
+            tool_executors: Dict[str, Any] = {
+                "search_web": lambda query, max_results=5: self._format_search_results(
+                    self.web_search.search(query, max_results=max_results)
+                ),
+            }
+
             if doc_indexer is not None:
-                doc_tools = [{
+                tools.append({
                     "type": "function",
                     "function": {
                         "name": "search_document",
                         "description": (
                             "Search the user-uploaded document for relevant passages. "
-                            "Call this when the topic may be covered in the uploaded file."
+                            "Use this when the query is likely answered by the uploaded file."
                         ),
                         "parameters": {
                             "type": "object",
@@ -199,52 +218,52 @@ class ContentPipeline:
                                 },
                                 "k": {
                                     "type": "integer",
-                                    "description": "Number of passages to return (1-8)",
+                                    "description": "Number of passages to return (1-8, default 5)",
                                     "default": 5,
                                 },
                             },
                             "required": ["query"],
                         },
                     },
-                }]
-                doc_executors = {
-                    "search_document": lambda query, k=5: doc_indexer.format_for_context(query, k=k)
-                }
-                task = (
-                    f"Research the following topic comprehensively:\n\n{topic}\n\n"
-                    "Provide detailed research notes with sources. "
-                    "USE the web search results provided in your context — they contain real, current information. "
-                    "You also have a search_document tool — use it if the uploaded document likely contains "
-                    "relevant information about this topic."
+                })
+                tool_executors["search_document"] = (
+                    lambda query, k=5: doc_indexer.format_for_context(query, k=k)
                 )
-                user_message = self.researcher._build_user_message(task, context if context else None)
-                raw = self.researcher.groq.invoke_with_tools(
-                    messages=[{"role": "user", "content": user_message}],
-                    system=self.researcher.instructions,
-                    tools=doc_tools,
-                    tool_executors=doc_executors,
-                    max_tokens=3000,
+
+            # Build task prompt
+            task_parts = [
+                f"Research the following topic comprehensively:\n\n{topic}\n\n",
+                "Use your available tools to gather information, then write detailed research notes with sources.",
+            ]
+            if doc_indexer is not None:
+                task_parts.append(
+                    " A document has been uploaded — use search_document if it is likely relevant."
                 )
-                cost = self.researcher.tracker.track_call(
-                    agent_name='researcher',
-                    input_tokens=raw['usage']['input_tokens'],
-                    output_tokens=raw['usage']['output_tokens'],
-                    description=f"Task: Research {topic[:50]}",
-                )
-                result = {'output': raw['content'], 'usage': raw['usage'], 'cost': cost}
-                if tracer:
-                    tracer.log_tool_call("researcher", "search_document", {"available": True})
-            else:
-                result = self.researcher.execute(
-                    task=(
-                        f"Research the following topic comprehensively:\n\n{topic}\n\n"
-                        "Provide detailed research notes with sources. "
-                        "USE the web search results provided in your context - "
-                        "they contain real, current information. Cite the actual URLs."
-                    ),
-                    context=context if context else None,
-                    max_tokens=3000,
-                )
+            if user_notes:
+                task_parts.append(f"\n\nUser's notes to incorporate:\n{user_notes}")
+
+            task = "".join(task_parts)
+            user_message = self.researcher._build_user_message(task, None)
+
+            raw = self.researcher.groq.invoke_with_tools(
+                messages=[{"role": "user", "content": user_message}],
+                system=self.researcher.instructions,
+                tools=tools,
+                tool_executors=tool_executors,
+                max_tokens=3000,
+            )
+
+            if tracer:
+                tracer.log_tool_call("researcher", "tools_available",
+                                     {"tools": [t["function"]["name"] for t in tools]})
+
+            cost = self.researcher.tracker.track_call(
+                agent_name='researcher',
+                input_tokens=raw['usage']['input_tokens'],
+                output_tokens=raw['usage']['output_tokens'],
+                description=f"Task: Research {topic[:50]}",
+            )
+            result = {'output': raw['content'], 'usage': raw['usage'], 'cost': cost}
 
             state['research_output'] = result['output']
             state['metadata']['researcher_cost'] = result['cost']
