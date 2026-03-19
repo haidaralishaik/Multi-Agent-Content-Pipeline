@@ -8,8 +8,8 @@ to handle transient failures from Groq gracefully.
 import time
 import random
 import logging
-from typing import Callable, TypeVar, Tuple, Any
-from dataclasses import dataclass, field
+from typing import Callable, TypeVar, Tuple, Any, Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class RetryHandler:
     Tracks retry history for observability.
     """
 
-    def __init__(self, config: RetryConfig = None):
+    def __init__(self, config: Optional[RetryConfig] = None):
         self.config = config or RetryConfig()
         self.retry_history: list = []
 
@@ -46,7 +46,7 @@ class RetryHandler:
         before retrying. Returns the result on success or raises the
         last exception after all retries are exhausted.
         """
-        last_exception = None
+        last_exception: Optional[Exception] = None
 
         for attempt in range(self.config.max_retries + 1):
             try:
@@ -80,7 +80,7 @@ class RetryHandler:
                         f"{type(e).__name__}: {e}"
                     )
 
-        raise last_exception
+        raise last_exception  # type: ignore[misc]  # always set after at least 1 iteration
 
 
 class CircuitBreaker:

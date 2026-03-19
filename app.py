@@ -289,8 +289,8 @@ elif mode == "Interactive (Review Each Stage)":
     # Run current stage
     elif current < len(stages):
         stage = stages[current]
-        pipeline = st.session_state.interactive_pipeline
-        state = st.session_state.interactive_state
+        pipeline: InteractivePipeline = st.session_state.interactive_pipeline
+        state: dict = st.session_state.interactive_state
 
         output_field = InteractivePipeline.STAGE_OUTPUT_FIELDS[stage]
 

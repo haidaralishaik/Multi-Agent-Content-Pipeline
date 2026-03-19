@@ -12,8 +12,8 @@ import numpy as np
 from collections import Counter
 from typing import List, Dict, Optional
 
-import faiss
-import PyPDF2
+import faiss  # type: ignore[import-untyped]
+import PyPDF2  # type: ignore[import-untyped]
 
 logger = logging.getLogger(__name__)
 

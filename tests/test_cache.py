@@ -67,7 +67,7 @@ def test_cache_expiry():
     """Expired entries return None"""
     _clean()
     cache = PipelineCache(cache_dir=TEST_CACHE_DIR)
-    cache.DEFAULT_TTL = 0.01  # 10ms TTL
+    PipelineCache.DEFAULT_TTL = 0.01  # type: ignore[misc]  # 10ms TTL for test
     cache.put("AI topic", "research", "Old data", cost=0.001)
     time.sleep(0.02)
     result = cache.get("AI topic", "research")
