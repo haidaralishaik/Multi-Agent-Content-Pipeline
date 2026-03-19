@@ -109,7 +109,7 @@ mode = st.radio(
 # Topic input
 topic = st.text_area(
     "What do you want to write about?",
-    placeholder="Example: How RAG systems are transforming enterprise search in 2024",
+    placeholder="Example: How RAG systems are transforming enterprise search in 2026",
     height=100
 )
 
