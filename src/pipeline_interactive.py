@@ -37,7 +37,8 @@ class InteractivePipeline(ContentPipeline):
 
     def create_initial_state(self, topic: str, content_format: str = "blog_post",
                              tone: str = "professional",
-                             user_notes: str = "") -> PipelineState:
+                             user_notes: str = "",
+                             doc_indexer: Optional[Any] = None) -> PipelineState:
         """Create the initial pipeline state for interactive mode."""
         return {
             'topic': topic,
@@ -53,6 +54,7 @@ class InteractivePipeline(ContentPipeline):
             'errors': [],
             '_tracer': PipelineTracer(),
             '_use_cache': True,
+            '_doc_indexer': doc_indexer,
         }
 
     def run_stage(self, stage: str, state: PipelineState) -> PipelineState:

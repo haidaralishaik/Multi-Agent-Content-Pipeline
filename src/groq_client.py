@@ -5,7 +5,8 @@ Uses Groq (free tier, 6000 req/day) — LLaMA 3.3 70B.
 """
 
 import os
-from typing import Dict, List, Optional
+import json
+from typing import Callable, Dict, List, Optional
 import logging
 
 from src.resilience import RetryHandler, RetryConfig
@@ -101,6 +102,117 @@ class GroqClient:
         except Exception as e:
             logger.error(f"Groq invocation failed: {e}")
             raise
+
+    def invoke_with_tools(
+        self,
+        messages: List[Dict],
+        system: Optional[str] = None,
+        tools: Optional[List[Dict]] = None,
+        tool_executors: Optional[Dict[str, Callable]] = None,
+        max_tokens: int = 4000,
+        temperature: float = 0.7,
+        max_tool_rounds: int = 6,
+    ) -> Dict:
+        """
+        Invoke with Groq tool calling. Runs the agentic loop until the LLM
+        produces a final response with no tool calls.
+
+        Args:
+            messages:       Conversation messages
+            system:         System prompt
+            tools:          Groq-format tool definitions
+            tool_executors: {tool_name: callable(**args) -> str}
+            max_tool_rounds: Safety cap on tool call iterations
+
+        Returns:
+            Same shape as invoke(): {content, usage, stop_reason}
+        """
+        groq_messages: List[Dict] = []
+        if system:
+            groq_messages.append({"role": "system", "content": system})
+        groq_messages.extend(messages)
+
+        total_input = 0
+        total_output = 0
+
+        for _ in range(max_tool_rounds):
+            call_kwargs: Dict = dict(
+                model=self.model_id,
+                messages=groq_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            if tools:
+                call_kwargs["tools"] = tools
+                call_kwargs["tool_choice"] = "auto"
+
+            response = self._retry_handler.execute_with_retry(
+                self._client.chat.completions.create, **call_kwargs
+            )
+            total_input += response.usage.prompt_tokens if response.usage else 0
+            total_output += response.usage.completion_tokens if response.usage else 0
+
+            choice = response.choices[0]
+            msg = choice.message
+
+            if not msg.tool_calls:
+                # Final answer — no more tool calls
+                return {
+                    "content": msg.content or "",
+                    "usage": {"input_tokens": total_input, "output_tokens": total_output},
+                    "stop_reason": choice.finish_reason or "end_turn",
+                }
+
+            # Append assistant message (with tool_calls)
+            groq_messages.append({
+                "role": "assistant",
+                "content": msg.content or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
+
+            # Execute each tool and append results
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    tool_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    tool_args = {}
+
+                if tool_executors and tool_name in tool_executors:
+                    try:
+                        result_str = str(tool_executors[tool_name](**tool_args))
+                    except Exception as exc:
+                        result_str = f"Tool error: {exc}"
+                else:
+                    result_str = f"Unknown tool: {tool_name}"
+
+                logger.info(f"Tool called: {tool_name}({tool_args})")
+                groq_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result_str,
+                })
+
+        # Fallback if max rounds reached
+        last_content = next(
+            (m.get("content", "") for m in reversed(groq_messages) if m.get("role") == "assistant"),
+            "",
+        )
+        return {
+            "content": last_content,
+            "usage": {"input_tokens": total_input, "output_tokens": total_output},
+            "stop_reason": "max_tool_rounds",
+        }
 
     def invoke_with_system(
         self,

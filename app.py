@@ -150,7 +150,7 @@ user_notes = st.text_area(
 
 # Document upload
 st.markdown("**📎 Upload a Document (optional)**")
-st.caption("PDF, TXT, or MD — the Researcher agent will search it alongside the web.")
+st.caption("PDF, TXT, or MD — the Researcher agent will decide when to search it.")
 uploaded_file = st.file_uploader(
     "Drop a file here",
     type=["pdf", "txt", "md"],
@@ -198,19 +198,13 @@ if mode == "Automatic (Full Pipeline)":
             status_text.text("🔍 Searching the web & researching your topic...")
             progress_bar.progress(0.1)
 
-            # Append document context to user notes if a file was indexed
-            combined_notes = user_notes
-            if st.session_state.doc_indexer:
-                doc_context = st.session_state.doc_indexer.format_for_context(topic, k=5)
-                if doc_context:
-                    combined_notes = (user_notes + "\n\n" + doc_context).strip()
-
             result = st.session_state.pipeline.run(
                 topic=topic,
                 content_format=content_format,
                 tone=tone,
-                user_notes=combined_notes,
+                user_notes=user_notes,
                 use_cache=use_cache,
+                doc_indexer=st.session_state.doc_indexer,
             )
 
             # Check for guardrail blocks
@@ -272,15 +266,10 @@ elif mode == "Interactive (Review Each Stage)":
                 with st.spinner("Initializing agents..."):
                     st.session_state.interactive_pipeline = InteractivePipeline()
 
-            combined_notes = user_notes
-            if st.session_state.doc_indexer:
-                doc_context = st.session_state.doc_indexer.format_for_context(topic, k=5)
-                if doc_context:
-                    combined_notes = (user_notes + "\n\n" + doc_context).strip()
-
             state = st.session_state.interactive_pipeline.create_initial_state(
                 topic=topic, content_format=content_format,
-                tone=tone, user_notes=combined_notes,
+                tone=tone, user_notes=user_notes,
+                doc_indexer=st.session_state.doc_indexer,
             )
             st.session_state.interactive_state = state
             st.session_state.interactive_stage = 0
