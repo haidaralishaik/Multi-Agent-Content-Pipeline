@@ -43,6 +43,8 @@ if 'doc_indexer' not in st.session_state:
     st.session_state.doc_indexer = None
 if 'doc_name' not in st.session_state:
     st.session_state.doc_name = None
+if 'force_rerun_stage' not in st.session_state:
+    st.session_state.force_rerun_stage = False
 
 # Sidebar
 with st.sidebar:
@@ -290,15 +292,18 @@ elif mode == "Interactive (Review Each Stage)":
         pipeline = st.session_state.interactive_pipeline
         state = st.session_state.interactive_state
 
-        # Run stage if output is empty
+        # Run stage if output is empty OR a re-run was explicitly requested
         output_field = InteractivePipeline.STAGE_OUTPUT_FIELDS[stage]
-        if not state.get(output_field):
+        force_rerun = st.session_state.force_rerun_stage
+        if not state.get(output_field) or force_rerun:
+            st.session_state.force_rerun_stage = False
             with st.spinner(f"Running {stage_labels[stage]}..."):
+                if force_rerun:
+                    state['_use_cache'] = False
                 state = pipeline.run_stage(stage, state)
                 state['_use_cache'] = True
                 st.session_state.interactive_state = state
-                # Force the text area widget to show the new output,
-                # overriding Streamlit's cached widget state from the previous run
+                # Set widget value before text_area renders so it shows fresh output
                 st.session_state[f"edit_{stage}"] = pipeline.get_stage_output(state, stage)
 
         # Show output for review
@@ -327,12 +332,7 @@ elif mode == "Interactive (Review Each Stage)":
 
         with col_rerun:
             if st.button("🔄 Re-run Stage", key=f"rerun_{stage}"):
-                state[output_field] = ''
-                state['_use_cache'] = False
-                st.session_state.interactive_state = state
-                # Clear stale widget state so the text area resets to new output after re-run
-                if f"edit_{stage}" in st.session_state:
-                    del st.session_state[f"edit_{stage}"]
+                st.session_state.force_rerun_stage = True
                 st.rerun()
 
         with col_restart:
