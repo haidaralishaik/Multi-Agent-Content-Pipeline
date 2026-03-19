@@ -1,123 +1,160 @@
 """
-Document Search Tool - Search user's personal documents
+Document Search Tool - PyPDF2 + FAISS semantic search
 
-Used by the Researcher agent to find relevant information
-from the user's own notes, files, and documents.
+Extracts text from uploaded PDFs/text files, chunks them,
+indexes them with FAISS, and retrieves relevant passages
+for the Researcher agent.
 """
 
-from pathlib import Path
-from typing import List, Dict
+import io
 import logging
+import numpy as np
+from collections import Counter
+from typing import List, Dict, Optional
+
+import faiss
+import PyPDF2
 
 logger = logging.getLogger(__name__)
 
+CHUNK_SIZE = 500        # characters per chunk
+CHUNK_OVERLAP = 100     # overlap between chunks
+VOCAB_SIZE = 4096       # embedding dimension (top N words)
+MIN_CHUNK_LEN = 60      # discard very short chunks
 
-class DocumentSearchTool:
+
+class DocumentIndexer:
     """
-    Searches through local documents for relevant information
+    Indexes uploaded documents with FAISS for semantic search.
 
-    In production, this would use a vector database (FAISS, Pinecone, etc.)
-    For now, it does simple keyword matching against files in data/.
+    Pipeline:
+      file bytes → PyPDF2 / plain text → chunks → TF-IDF vectors
+      → FAISS IndexFlatIP (cosine similarity after L2 norm)
     """
 
-    def __init__(self, docs_dir: str = 'data'):
+    def __init__(self):
+        self.chunks: List[str] = []
+        self.index: Optional[faiss.IndexFlatIP] = None
+        self.vocab: Dict[str, int] = {}
+        self.doc_name: str = ""
+        self.page_count: int = 0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def load(self, file_bytes: bytes, filename: str) -> int:
         """
-        Initialize document search
+        Extract, chunk, and index a document.
 
         Args:
-            docs_dir: Directory containing documents to search
-        """
-        self.docs_dir = Path(docs_dir)
-        self.docs_dir.mkdir(exist_ok=True)
-        self.documents = self._load_documents()
-        logger.info(f"DocumentSearch initialized with {len(self.documents)} documents")
-
-    def _load_documents(self) -> List[Dict]:
-        """Load all documents from the data directory"""
-        documents = []
-
-        for filepath in self.docs_dir.glob('**/*'):
-            if filepath.is_file() and filepath.suffix in ['.txt', '.md', '.pdf']:
-                try:
-                    content = filepath.read_text(encoding='utf-8')
-                    documents.append({
-                        'filename': filepath.name,
-                        'path': str(filepath),
-                        'content': content,
-                        'size': len(content)
-                    })
-                except Exception as e:
-                    logger.warning(f"Could not read {filepath}: {e}")
-
-        return documents
-
-    def search(self, query: str, max_results: int = 5) -> List[Dict]:
-        """
-        Search documents for relevant content
-
-        Args:
-            query: Search query
-            max_results: Maximum number of results to return
+            file_bytes: Raw bytes of the uploaded file.
+            filename:   Original filename (used to detect PDF vs text).
 
         Returns:
-            List of matching document excerpts with metadata
+            Number of chunks indexed.
         """
-        if not self.documents:
-            return [{
-                'source': 'No documents',
-                'content': 'No documents found in data/ directory. Add .txt or .md files to enable document search.',
-                'relevance': 'N/A'
-            }]
+        self.doc_name = filename
+        text = self._extract_text(file_bytes, filename)
+
+        if not text.strip():
+            logger.warning(f"No text extracted from {filename}")
+            return 0
+
+        self.chunks = self._chunk(text)
+        if not self.chunks:
+            return 0
+
+        self.vocab = self._build_vocab(self.chunks)
+        embeddings = np.array(
+            [self._vectorize(c) for c in self.chunks], dtype=np.float32
+        )
+        faiss.normalize_L2(embeddings)
+
+        self.index = faiss.IndexFlatIP(VOCAB_SIZE)
+        self.index.add(embeddings)
+
+        logger.info(f"Indexed '{filename}': {len(self.chunks)} chunks, {self.page_count} pages")
+        return len(self.chunks)
+
+    def search(self, query: str, k: int = 5) -> List[Dict]:
+        """
+        Retrieve the top-k most relevant chunks for a query.
+
+        Returns list of dicts with keys: source, content, score.
+        """
+        if self.index is None or not self.chunks:
+            return []
+
+        q_vec = np.array([self._vectorize(query)], dtype=np.float32)
+        faiss.normalize_L2(q_vec)
+
+        k = min(k, len(self.chunks))
+        scores, indices = self.index.search(q_vec, k)
 
         results = []
-        query_terms = query.lower().split()
-
-        for doc in self.documents:
-            content_lower = doc['content'].lower()
-
-            # Simple relevance scoring: count matching terms
-            score = sum(1 for term in query_terms if term in content_lower)
-
-            if score > 0:
-                # Extract relevant excerpt (first matching section)
-                excerpt = self._extract_excerpt(doc['content'], query_terms)
+        for score, idx in zip(scores[0], indices[0]):
+            if idx >= 0 and score > 0.05:   # filter near-zero relevance
                 results.append({
-                    'source': doc['filename'],
-                    'path': doc['path'],
-                    'content': excerpt,
-                    'relevance_score': score,
-                    'relevance': 'High' if score >= 3 else 'Medium' if score >= 2 else 'Low'
+                    "source": self.doc_name,
+                    "content": self.chunks[idx],
+                    "score": float(score),
                 })
+        return results
 
-        # Sort by relevance score
-        results.sort(key=lambda x: x['relevance_score'], reverse=True)
+    def format_for_context(self, query: str, k: int = 5) -> str:
+        """Return search results as a formatted string for the LLM context."""
+        results = self.search(query, k=k)
+        if not results:
+            return ""
 
-        return results[:max_results]
+        lines = [f"## Relevant Passages from '{self.doc_name}'\n"]
+        for i, r in enumerate(results, 1):
+            lines.append(f"**Passage {i}** (relevance: {r['score']:.2f}):")
+            lines.append(r["content"])
+            lines.append("")
+        return "\n".join(lines)
 
-    def _extract_excerpt(self, content: str, query_terms: List[str], context_chars: int = 500) -> str:
-        """Extract relevant excerpt around matching terms"""
-        content_lower = content.lower()
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
 
-        for term in query_terms:
-            pos = content_lower.find(term)
-            if pos != -1:
-                start = max(0, pos - context_chars // 2)
-                end = min(len(content), pos + context_chars // 2)
-                excerpt = content[start:end]
-                if start > 0:
-                    excerpt = "..." + excerpt
-                if end < len(content):
-                    excerpt = excerpt + "..."
-                return excerpt
+    def _extract_text(self, file_bytes: bytes, filename: str) -> str:
+        if filename.lower().endswith(".pdf"):
+            return self._extract_pdf(file_bytes)
+        # Plain text / markdown
+        return file_bytes.decode("utf-8", errors="ignore")
 
-        # If no match found, return beginning of document
-        return content[:context_chars] + ("..." if len(content) > context_chars else "")
+    def _extract_pdf(self, file_bytes: bytes) -> str:
+        reader = PyPDF2.PdfReader(io.BytesIO(file_bytes))
+        self.page_count = len(reader.pages)
+        pages = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                pages.append(text)
+        return "\n\n".join(pages)
 
+    def _chunk(self, text: str) -> List[str]:
+        chunks = []
+        start = 0
+        while start < len(text):
+            end = start + CHUNK_SIZE
+            chunk = text[start:end].strip()
+            if len(chunk) >= MIN_CHUNK_LEN:
+                chunks.append(chunk)
+            start += CHUNK_SIZE - CHUNK_OVERLAP
+        return chunks
 
-# Example usage
-if __name__ == "__main__":
-    search = DocumentSearchTool()
-    results = search.search("RAG retrieval augmented generation")
-    print(f"Found {len(results)} results:")
-    for r in results:
-        print(f"  - {r['source']}: {r['relevance']}")
+    def _build_vocab(self, chunks: List[str]) -> Dict[str, int]:
+        all_words = " ".join(chunks).lower().split()
+        most_common = Counter(all_words).most_common(VOCAB_SIZE)
+        return {word: idx for idx, (word, _) in enumerate(most_common)}
+
+    def _vectorize(self, text: str) -> np.ndarray:
+        vec = np.zeros(VOCAB_SIZE, dtype=np.float32)
+        for word in text.lower().split():
+            idx = self.vocab.get(word)
+            if idx is not None:
+                vec[idx] += 1.0
+        return vec

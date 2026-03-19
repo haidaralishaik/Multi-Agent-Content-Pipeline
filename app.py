@@ -2,7 +2,7 @@
 Streamlit UI for Multi-Agent Content Pipeline
 
 Create blog posts, LinkedIn posts, and Twitter threads
-using 4 specialized AI agents on AWS Bedrock.
+using 4 specialized AI agents powered by Groq (LLaMA 3.3 70B).
 
 Features: Guardrails, quality scoring, caching, tracing, human-in-the-loop review.
 """
@@ -10,6 +10,7 @@ Features: Guardrails, quality scoring, caching, tracing, human-in-the-loop revie
 import streamlit as st
 from src.pipeline import ContentPipeline
 from src.pipeline_interactive import InteractivePipeline
+from tools.document_search import DocumentIndexer
 from pathlib import Path
 import json
 from datetime import datetime
@@ -38,6 +39,10 @@ if 'interactive_stage' not in st.session_state:
     st.session_state.interactive_stage = -1  # -1 = not started
 if 'interactive_state' not in st.session_state:
     st.session_state.interactive_state = None
+if 'doc_indexer' not in st.session_state:
+    st.session_state.doc_indexer = None
+if 'doc_name' not in st.session_state:
+    st.session_state.doc_name = None
 
 # Sidebar
 with st.sidebar:
@@ -60,9 +65,9 @@ with st.sidebar:
     st.metric("Session Total", f"${st.session_state.total_spent:.4f}")
 
     if st.session_state.last_result:
-        st.metric("Last Run", f"${st.session_state.last_result['total_cost']:.4f}")
+        st.metric("Last Run", f"${st.session_state.last_result.get('total_cost', 0):.4f}")
 
-    st.caption("~$0.01-0.03 per content piece")
+    st.caption("Free (Groq free tier — 6,000 req/day)")
 
     st.divider()
 
@@ -141,6 +146,32 @@ user_notes = st.text_area(
     height=120
 )
 
+# Document upload
+st.markdown("**📎 Upload a Document (optional)**")
+st.caption("PDF, TXT, or MD — the Researcher agent will search it alongside the web.")
+uploaded_file = st.file_uploader(
+    "Drop a file here",
+    type=["pdf", "txt", "md"],
+    label_visibility="collapsed",
+)
+
+if uploaded_file is not None:
+    if st.session_state.doc_name != uploaded_file.name:
+        with st.spinner(f"Indexing '{uploaded_file.name}' with FAISS..."):
+            indexer = DocumentIndexer()
+            n_chunks = indexer.load(uploaded_file.read(), uploaded_file.name)
+            st.session_state.doc_indexer = indexer
+            st.session_state.doc_name = uploaded_file.name
+        if n_chunks > 0:
+            st.success(f"✅ Indexed **{uploaded_file.name}** — {n_chunks} chunks ready for search")
+        else:
+            st.warning("Could not extract text from this file.")
+            st.session_state.doc_indexer = None
+else:
+    if st.session_state.doc_name:
+        st.session_state.doc_indexer = None
+        st.session_state.doc_name = None
+
 # ==========================
 # AUTOMATIC MODE
 # ==========================
@@ -150,7 +181,7 @@ if mode == "Automatic (Full Pipeline)":
         run_button = st.button("🚀 Create Content", type="primary", disabled=not topic)
     with col2:
         if topic:
-            st.caption("Estimated cost: $0.01-0.03 | Time: ~60-90 seconds")
+            st.caption("Free (Groq) | Estimated time: ~60-90 seconds")
 
     if run_button and topic:
         if not st.session_state.pipeline:
@@ -165,11 +196,18 @@ if mode == "Automatic (Full Pipeline)":
             status_text.text("🔍 Searching the web & researching your topic...")
             progress_bar.progress(0.1)
 
+            # Append document context to user notes if a file was indexed
+            combined_notes = user_notes
+            if st.session_state.doc_indexer:
+                doc_context = st.session_state.doc_indexer.format_for_context(topic, k=5)
+                if doc_context:
+                    combined_notes = (user_notes + "\n\n" + doc_context).strip()
+
             result = st.session_state.pipeline.run(
                 topic=topic,
                 content_format=content_format,
                 tone=tone,
-                user_notes=user_notes,
+                user_notes=combined_notes,
                 use_cache=use_cache,
             )
 
@@ -180,7 +218,7 @@ if mode == "Automatic (Full Pipeline)":
                 st.error(f"Input blocked: {result['errors'][0]}")
             else:
                 st.session_state.last_result = result
-                st.session_state.total_spent += result['total_cost']
+                st.session_state.total_spent += result.get('total_cost', 0)
 
                 progress_bar.progress(1.0)
                 status_text.text("✅ Pipeline complete!")
@@ -232,9 +270,15 @@ elif mode == "Interactive (Review Each Stage)":
                 with st.spinner("Initializing agents..."):
                     st.session_state.interactive_pipeline = InteractivePipeline()
 
+            combined_notes = user_notes
+            if st.session_state.doc_indexer:
+                doc_context = st.session_state.doc_indexer.format_for_context(topic, k=5)
+                if doc_context:
+                    combined_notes = (user_notes + "\n\n" + doc_context).strip()
+
             state = st.session_state.interactive_pipeline.create_initial_state(
                 topic=topic, content_format=content_format,
-                tone=tone, user_notes=user_notes,
+                tone=tone, user_notes=combined_notes,
             )
             st.session_state.interactive_state = state
             st.session_state.interactive_stage = 0
@@ -251,6 +295,7 @@ elif mode == "Interactive (Review Each Stage)":
         if not state.get(output_field):
             with st.spinner(f"Running {stage_labels[stage]}..."):
                 state = pipeline.run_stage(stage, state)
+                state['_use_cache'] = True
                 st.session_state.interactive_state = state
 
         # Show output for review
@@ -280,6 +325,7 @@ elif mode == "Interactive (Review Each Stage)":
         with col_rerun:
             if st.button("🔄 Re-run Stage", key=f"rerun_{stage}"):
                 state[output_field] = ''
+                state['_use_cache'] = False
                 st.session_state.interactive_state = state
                 st.rerun()
 
@@ -522,6 +568,6 @@ with st.expander("💡 How to Use"):
 # Footer
 st.divider()
 st.caption(
-    "Multi-Agent Content Pipeline | Powered by AWS Bedrock (Claude 3.5 Haiku) | "
+    "Multi-Agent Content Pipeline | Powered by Groq (LLaMA 3.3 70B) | "
     "Guardrails + Quality Scoring + Caching + Tracing + Human-in-the-Loop"
 )

@@ -204,7 +204,7 @@ Get a free key at [console.groq.com/keys](https://console.groq.com/keys) — no 
 |---------|----------|
 | `GROQ_API_KEY not set` | Add your key to `.env` |
 | `429 RESOURCE_EXHAUSTED` | Free tier rate limit — wait a minute and retry |
-| `404 NOT_FOUND` | Add `GEMINI_MODEL=gemini-flash-lite-latest` to `.env` |
+| `Model not found` | Check that `GROQ_MODEL` in `.env` matches a valid Groq model name |
 
 ---
 
