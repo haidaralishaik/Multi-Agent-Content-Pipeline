@@ -16,6 +16,9 @@ Topic ──→ Researcher ──→ Writer ──→ Editor ──→ Fact-Chec
         Gathers info    Crafts draft  Polishes    Verifies claims
         from web        with tone &   clarity,    & corrects
         (DuckDuckGo)    format        flow        inaccuracies
+        + optional
+        document tool
+        (agent decides)
 ```
 
 Each agent is backed by **Groq (LLaMA 3.3 70B)** (free tier), with its behavior defined entirely in **Markdown instruction files** — not hardcoded prompts.
@@ -33,6 +36,7 @@ Each agent is backed by **Groq (LLaMA 3.3 70B)** (free tier), with its behavior 
 | **Input/Output Guardrails** | PII detection, prompt injection blocking, auto-redaction |
 | **Quality Scoring** | LLM-as-judge evaluation with A-F grading |
 | **Human-in-the-Loop** | Interactive mode — review and edit between stages |
+| **Document Upload** | Upload a PDF/TXT/MD — Researcher uses it as a Groq tool (agent decides when to search it) |
 | **Resilience** | Retry with exponential backoff + circuit breaker pattern |
 | **Full Observability** | Trace IDs, event timeline, millisecond-level timing |
 | **Streamlit UI** | 9-tab dashboard with real-time pipeline visualization |
