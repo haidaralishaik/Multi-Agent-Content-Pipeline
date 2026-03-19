@@ -292,22 +292,24 @@ elif mode == "Interactive (Review Each Stage)":
         pipeline = st.session_state.interactive_pipeline
         state = st.session_state.interactive_state
 
-        # Run stage if output is empty OR a re-run was explicitly requested
         output_field = InteractivePipeline.STAGE_OUTPUT_FIELDS[stage]
-        force_rerun = st.session_state.force_rerun_stage
-        if not state.get(output_field) or force_rerun:
+
+        # Handle re-run: clear output and widget key BEFORE any widget renders,
+        # so the stage auto-runs below and the text_area shows fresh content.
+        if st.session_state.force_rerun_stage:
+            state[output_field] = ''
+            state['_use_cache'] = False
+            st.session_state.interactive_state = state
+            if f"edit_{stage}" in st.session_state:
+                del st.session_state[f"edit_{stage}"]
             st.session_state.force_rerun_stage = False
+
+        # Auto-run stage whenever output is missing (first run or after re-run clear)
+        if not state.get(output_field):
             with st.spinner(f"Running {stage_labels[stage]}..."):
-                if force_rerun:
-                    state['_use_cache'] = False
                 state = pipeline.run_stage(stage, state)
                 state['_use_cache'] = True
                 st.session_state.interactive_state = state
-                st.session_state[f"edit_{stage}"] = pipeline.get_stage_output(state, stage)
-            # Rerun once more so the text area widget picks up the new session state value.
-            # Streamlit does not reflect st.session_state[widget_key] changes in the same
-            # script run that the widget renders — a second pass is required.
-            st.rerun()
 
         # Show output for review
         output_text = pipeline.get_stage_output(state, stage)
