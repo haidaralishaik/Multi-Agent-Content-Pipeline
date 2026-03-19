@@ -2,7 +2,7 @@
 Resilience Layer - Retry logic and circuit breaker for API calls
 
 Provides exponential backoff retry with jitter and a circuit breaker
-to handle transient failures from AWS Bedrock gracefully.
+to handle transient failures from Groq gracefully.
 """
 
 import time

@@ -138,7 +138,7 @@ multi-agent-content-pipeline/
 │
 ├── src/                           # Core framework
 │   ├── agent_core.py              #   Instruction-based agent engine
-│   ├── bedrock_client.py          #   Groq LLM wrapper
+│   ├── groq_client.py          #   Groq LLM wrapper
 │   ├── pipeline.py                #   4-agent LangGraph orchestration
 │   ├── pipeline_interactive.py    #   Human-in-the-loop variant
 │   ├── cache.py                   #   Content-addressed caching (24h TTL)

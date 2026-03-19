@@ -7,7 +7,7 @@ Research -> Write -> Edit -> Fact-Check -> Final Output
 from typing import TypedDict, Dict, Any, List, Optional
 from dataclasses import asdict
 from src.agent_core import InstructionBasedAgent
-from src.cost_tracker import BedrockCostTracker
+from src.cost_tracker import GroqCostTracker
 from src.tracing import PipelineTracer
 from src.guardrails import ContentGuardrails, RiskLevel
 from src.cache import PipelineCache
@@ -88,7 +88,7 @@ class ContentPipeline:
         self.web_search = WebSearchTool()
 
         # Cost tracker
-        self.tracker = BedrockCostTracker()
+        self.tracker = GroqCostTracker()
 
         # Guardrails
         self.guardrails = ContentGuardrails()
@@ -485,8 +485,8 @@ class ContentPipeline:
         if output_check.pii_detected:
             final_state['final_output'] = output_check.sanitized_text
 
-        # Quality evaluation on final content (uses Bedrock for relevancy/faithfulness)
-        evaluator = ContentEvaluator(bedrock_client=self.researcher.bedrock)
+        # Quality evaluation on final content (uses Groq for relevancy/faithfulness)
+        evaluator = ContentEvaluator(groq_client=self.researcher.groq)
         quality_score = evaluator.evaluate(
             content=final_state['final_output'],
             topic=topic,

@@ -1,8 +1,7 @@
 """
 Groq LLM Client
 
-Drop-in replacement for the original BedrockClient.
-Uses Groq (free tier, 6000 req/day) instead of AWS Bedrock.
+Uses Groq (free tier, 6000 req/day) — LLaMA 3.3 70B.
 """
 
 import os
@@ -14,13 +13,8 @@ from src.resilience import RetryHandler, RetryConfig
 logger = logging.getLogger(__name__)
 
 
-class BedrockClient:
-    """
-    LLM client powered by Groq (free tier, high limits).
-
-    Maintains the same interface as the original BedrockClient
-    so no other files need to change.
-    """
+class GroqClient:
+    """LLM client powered by Groq (free tier, 6000 req/day, LLaMA 3.3 70B)."""
 
     def __init__(
         self,
@@ -134,7 +128,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
 
-    client = BedrockClient()
+    client = GroqClient()
 
     response = client.invoke_with_system(
         user_message="Say 'Groq client is working!' and nothing else.",

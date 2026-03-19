@@ -4,8 +4,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-class BedrockCostTracker:
-    """Track AWS Bedrock costs"""
+class GroqCostTracker:
+    """Track Groq API usage"""
 
     # Gemini free tier pricing (per 1M tokens)
     PRICING = {
@@ -30,7 +30,7 @@ class BedrockCostTracker:
             json.dump(self.history, f, indent=2)
 
     def track_call(self, agent_name: str, input_tokens: int, output_tokens: int, description: str = ""):
-        """Track a single Bedrock API call"""
+        """Track a single Groq API call"""
         input_cost = (input_tokens / 1_000_000) * self.PRICING['input']
         output_cost = (output_tokens / 1_000_000) * self.PRICING['output']
         total_cost = input_cost + output_cost

@@ -1,12 +1,10 @@
 """
-Agent Core - Instruction-based agent powered by AWS Bedrock
-
-This is where instruction files meet AWS Bedrock!
+Agent Core - Instruction-based agent powered by Groq (LLaMA 3.3 70B)
 """
 
 from src.instruction_loader import InstructionLoader
-from src.bedrock_client import BedrockClient
-from src.cost_tracker import BedrockCostTracker
+from src.groq_client import GroqClient
+from src.cost_tracker import GroqCostTracker
 from typing import Dict, Optional, List
 import logging
 
@@ -15,12 +13,9 @@ logger = logging.getLogger(__name__)
 
 class InstructionBasedAgent:
     """
-    Agent that reads instruction files and uses AWS Bedrock
+    Agent that reads instruction files and uses Groq (LLaMA 3.3 70B).
 
-    This is the core innovation:
-    - Behavior comes from .md files (not code!)
-    - Powered by AWS Bedrock
-    - Tracks costs automatically
+    Behavior comes from .md files. Tracks token usage automatically.
     """
 
     def __init__(
@@ -44,11 +39,11 @@ class InstructionBasedAgent:
         self.loader = InstructionLoader(instructions_dir)
         self.instructions = self.loader.get_full_instructions(role)
 
-        # Initialize Bedrock
-        self.bedrock = BedrockClient()
+        # Initialize Groq client
+        self.groq = GroqClient()
 
         # Initialize cost tracking
-        self.tracker = BedrockCostTracker()
+        self.tracker = GroqCostTracker()
 
         logger.info(f"Agent initialized: {role} with {len(self.instructions)} char instructions")
 
@@ -80,8 +75,8 @@ class InstructionBasedAgent:
         logger.info(f"{self.role.upper()} executing task: {task[:100]}...")
 
         try:
-            # Call Bedrock with instructions as system prompt
-            result = self.bedrock.invoke(
+            # Call Groq with instructions as system prompt
+            result = self.groq.invoke(
                 messages=[
                     {"role": "user", "content": user_message}
                 ],

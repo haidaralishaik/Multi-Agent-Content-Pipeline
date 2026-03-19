@@ -118,8 +118,8 @@ class InteractivePipeline(ContentPipeline):
         """Build the final result dict from interactive state (same format as run())."""
         tracer: Optional[PipelineTracer] = state.get('_tracer')
 
-        # Quality evaluation (uses Bedrock for relevancy/faithfulness)
-        evaluator = ContentEvaluator(bedrock_client=self.researcher.bedrock)
+        # Quality evaluation (uses Groq for relevancy/faithfulness)
+        evaluator = ContentEvaluator(groq_client=self.researcher.groq)
         quality_score = evaluator.evaluate(
             content=state['final_output'],
             topic=state['topic'],

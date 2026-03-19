@@ -30,8 +30,8 @@ def test_text_stats_markdown():
 
 
 def test_evaluate_without_llm():
-    """Evaluate works without Bedrock client"""
-    e = ContentEvaluator(bedrock_client=None)
+    """Evaluate works without Groq client"""
+    e = ContentEvaluator(groq_client=None)
     text = "AI systems are transforming how we work. They help with many tasks. The future looks bright."
     score = e.evaluate(text)
     assert score.word_count > 0

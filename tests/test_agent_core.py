@@ -1,4 +1,4 @@
-"""Test agent core with Bedrock"""
+"""Test agent core with Groq"""
 from dotenv import load_dotenv
 load_dotenv()
 

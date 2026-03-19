@@ -3,7 +3,7 @@ Content Evaluator - Quality scoring for pipeline outputs
 
 Provides:
 - Word count and sentence statistics
-- LLM-as-judge scoring (relevancy, faithfulness) via Bedrock
+- LLM-as-judge scoring (relevancy, faithfulness) via Groq
 - Composite quality grades (A-F)
 """
 
@@ -37,12 +37,12 @@ class ContentEvaluator:
     Evaluates content quality using LLM-as-judge metrics.
 
     Scores relevancy (is the content on-topic?) and faithfulness
-    (does the content match the research?) using the same Bedrock
+    (does the content match the research?) using the same Groq
     model that powers the pipeline agents.
     """
 
-    def __init__(self, bedrock_client=None):
-        self.bedrock = bedrock_client
+    def __init__(self, groq_client=None):
+        self.groq = groq_client  # GroqClient instance for LLM-as-judge scoring
 
     # --- Text Statistics ---
 
@@ -91,7 +91,7 @@ class ContentEvaluator:
 
     def evaluate_relevancy(self, content: str, topic: str) -> float:
         """LLM-as-judge: how relevant is the content to the topic? Returns 0.0-1.0."""
-        if not self.bedrock:
+        if not self.groq:
             return 0.0
 
         prompt = (
@@ -103,7 +103,7 @@ class ContentEvaluator:
         )
 
         try:
-            result = self.bedrock.invoke(
+            result = self.groq.invoke(
                 messages=[{"role": "user", "content": prompt}],
                 system="You are a precise content evaluator. Return only valid JSON.",
                 max_tokens=200,
@@ -117,7 +117,7 @@ class ContentEvaluator:
 
     def evaluate_faithfulness(self, content: str, research: str) -> float:
         """LLM-as-judge: does the content faithfully represent the research? Returns 0.0-1.0."""
-        if not self.bedrock:
+        if not self.groq:
             return 0.0
 
         prompt = (
@@ -131,7 +131,7 @@ class ContentEvaluator:
         )
 
         try:
-            result = self.bedrock.invoke(
+            result = self.groq.invoke(
                 messages=[{"role": "user", "content": prompt}],
                 system="You are a precise content evaluator. Return only valid JSON.",
                 max_tokens=200,
@@ -151,7 +151,7 @@ class ContentEvaluator:
         Full evaluation of content quality.
 
         Uses LLM-as-judge for relevancy and faithfulness scoring.
-        Falls back to text stats only when no Bedrock client is available.
+        Falls back to text stats only when no Groq client is available.
         """
         stats = self.compute_text_stats(content)
 
@@ -159,9 +159,9 @@ class ContentEvaluator:
         faithfulness = self.evaluate_faithfulness(content, research) if research else 0.0
 
         # Composite score from LLM judgments
-        if topic and research and self.bedrock:
+        if topic and research and self.groq:
             overall = relevancy * 0.50 + faithfulness * 0.50
-        elif self.bedrock and topic:
+        elif self.groq and topic:
             overall = relevancy
         else:
             # No LLM available - use word count as a basic quality proxy
